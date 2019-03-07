@@ -101,6 +101,7 @@ func runCustomPreview(conn net.Conn) {
 				fmt.Println("error: ", err)
 			}
 		}
+		time.Sleep(10 * time.Millisecond)
 	}	
 }
 
@@ -267,8 +268,11 @@ func main() {
 		// server mode, start rest service
 		fmt.Printf("starting rest service on port %d, terminate with ctrl-c\n", restPort)
 		go runCustomPreview(conn)
+		fmt.Printf("22")
 		http.HandleFunc("/", handleRequest)
+		fmt.Printf("33")
 		var err = http.ListenAndServe(":"+strconv.Itoa(restPort), nil)	
+		fmt.Printf("4")
 		if err != nil {
 			fmt.Println("server failed starting:", err)
 		}
