@@ -6,6 +6,8 @@ Heavily based on the work of Hamish Coleman, https://github.com/hamishcoleman/le
 
 To use compile, then run: 
 
+```
   go run main.go <options>
+```
 
 Can be used from the cli or as a rest service. Run with `-h` to see options.
