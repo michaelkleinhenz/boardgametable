@@ -101,6 +101,7 @@ func runCustomPreview(conn net.Conn) {
 				fmt.Println("error: ", err)
 			}
 		}
+		// this is needed for the raspi
 		time.Sleep(10 * time.Millisecond)
 	}	
 }
