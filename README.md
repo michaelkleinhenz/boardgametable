@@ -4,4 +4,4 @@ this requires an LED strip and a sp108e LED controller. Warning, this is nothing
 
 Heavily based on the work of Hamish Coleman, https://github.com/hamishcoleman/led_sp108e
 
-To use compile, then run. Can be used from the cli or as a rest service.
+To use compile, then run. Can be used from the cli or as a rest service. Run with `-h` to see options.
