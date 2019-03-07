@@ -190,9 +190,6 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 		cmdCustomPreviewRunning = false
 		handleSuccess(&w, "success")
 		break
-	default:
-		handleError(&w, 405, "unknown command", "unknown command", nil)
-		break
 	case "tablecolors":
 		l, ok := keys["left"]
 		if !ok || len(l) != 1 {
@@ -236,6 +233,9 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 		startCustomPreview(conn)
 		cmdCustomPreviewRunning = true
 		handleSuccess(&w, "success")
+		break
+	default:
+		handleError(&w, 405, "unknown command", "unknown command", nil)
 		break
 	}
 }
