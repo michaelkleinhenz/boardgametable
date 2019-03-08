@@ -4,7 +4,7 @@ this requires an LED strip and a sp108e LED controller. Warning, this is nothing
 
 Heavily based on the work of Hamish Coleman, https://github.com/hamishcoleman/led_sp108e
 
-To use compile, then run: 
+To use, install packr, then compile, then run: 
 
 ```
   go run main.go <options>

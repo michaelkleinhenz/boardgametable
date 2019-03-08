@@ -1,14 +1,17 @@
 package main
 
-import "net"
-import "net/http"
-import "encoding/json"
-import "time"
-import "errors"
-import "flag"
-import "fmt"
-import "strconv"
-import "strings"
+import (
+	"github.com/gobuffalo/packr"
+	"net"
+	"net/http"
+	"encoding/json"
+	"time"
+	"errors"
+	"flag"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 const restPort = 8080
 
@@ -84,8 +87,17 @@ func parseColormaps(mapdefs []string, frame *[]byte) {
 
 func setBrightness(conn net.Conn, brightness int) {
 	fmt.Println("setting brightness to", brightness)
+	if cmdCustomPreviewRunning {
+		cmdCustomPreviewRunning = false
+		time.Sleep(50 * time.Millisecond)
+		command, _ := createCommandPacket(cmdBrightness, []byte {byte(brightness), byte(brightness), byte(brightness)})
+		sendCommand(conn, command, false)
+		time.Sleep(50 * time.Millisecond)
+		cmdCustomPreviewRunning = true
+		return
+	}
 	command, _ := createCommandPacket(cmdBrightness, []byte {byte(brightness), byte(brightness), byte(brightness)})
-	sendCommand(conn, command, false)
+	sendCommand(conn, command, false)	
 }
 
 func startCustomPreview(conn net.Conn) {
@@ -114,6 +126,7 @@ func handleSuccess(w *http.ResponseWriter, result interface{}) {
 		return
 	}
 	writer.Header().Add("Content-Type", "application/json")
+	writer.Header().Add("Access-Control-Allow-Origin", "*")
 	writer.WriteHeader(200)
 	writer.Write(marshalled)
 }
@@ -268,12 +281,13 @@ func main() {
 	if *serverPtr {
 		// server mode, start rest service
 		fmt.Printf("starting rest service on port %d, terminate with ctrl-c\n", restPort)
+		// start frame animation thread
 		go runCustomPreview(conn)
-		fmt.Printf("22")
-		http.HandleFunc("/", handleRequest)
-		fmt.Printf("33")
+		// setup web service
+		staticResources := packr.NewBox("./static")
+	  http.Handle("/", http.FileServer(staticResources))	
+		http.HandleFunc("/api", handleRequest)
 		var err = http.ListenAndServe(":"+strconv.Itoa(restPort), nil)	
-		fmt.Printf("4")
 		if err != nil {
 			fmt.Println("server failed starting:", err)
 		}
