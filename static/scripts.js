@@ -11,7 +11,7 @@ function setColor(direction, color) {
   var brightness = document.getElementById("brightness").value;
   console.log("setting colomap " + colormap + " and brightness to " + brightness);
   var xmlHttp = new XMLHttpRequest();
-  xmlHttp.open("GET", "http://127.0.0.1:8080/api?command=startcolormap&map=" + colormap + "&brightness=" + brightness, false);
+  xmlHttp.open("GET", "http://192.168.178.86:8080/api?command=startcolormap&map=" + colormap + "&brightness=" + brightness, false);
   xmlHttp.send(null);
   console.log("response: "+ xmlHttp.status);
 }
