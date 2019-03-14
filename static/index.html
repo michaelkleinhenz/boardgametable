@@ -8,15 +8,44 @@
   <body>
     <h1 class="header">Boardgame Table</h1>
     <table style="width:100%;height:30%">
-      <tr><td></td><td style="text-align:center"><input type="color" name="colorTop" onchange="setColor(3, this.value)"></td><td></td></tr>
       <tr>
-        <td style="text-align:center"><input type="color" name="colorLeft" onchange="setColor(2, this.value)"></td>
+        <td></td>
+        <td style="text-align:center">
+          <input type="color" id="colorTop" onchange="setColor(3, this.value)">
+          <button onclick="setActive('top')">ACTIVE</button>
+        </td>
+        <td></td>
+      </tr>
+      <tr>
+        <td style="text-align:center">
+          <input type="color" id="colorLeft" onchange="setColor(2, this.value)"><br>
+          <button onclick="setActive('LEFT')">ACTIVE</button>
+        </td>
         <td style="border:1px solid black;width:70%;height:50%;background:grey;color:white;text-align:center">TABLE</td>
-        <td style="text-align:center"><input type="color" name="colorRight" onchange="setColor(0, this.value)"></td></tr>
-      <tr><td></td><td style="text-align:center"><input type="color" name="colorBottom" onchange="setColor(1, this.value)"></td><td></td></tr>
+        <td style="text-align:center">
+          <input type="color" id="colorRight" onchange="setColor(0, this.value)"><br>
+          <button onclick="setActive('right')">ACTIVE</button>
+        </td>
+      </tr>
+      <tr><td></td>
+        <td style="text-align:center">
+          <input type="color" id="colorBottom" onchange="setColor(1, this.value)">
+          <button onclick="setActive('bottom')">ACTIVE</button>
+        </td>
+        <td></td>
+      </tr>
     </table>
     <p style="margin-top:20px">BRIGHTNESS</p>
     <p><input id="brightness" style="width:90%;margin-top:10px" type="range" min="0" max="255" value="125" class="slider" onchange="setBrightness(this.value)"></p>
-    <p style="font-size:0.8em;margin-top:10px">Brightness will be set when the color is updated</p>
+    <!-- <p style="font-size:0.8em;margin-top:10px">Brightness will be set when the color is updated</p> -->
+    <p style="margin-top:10px">
+        <button onclick="disableActive()">DISABLE ACTIVE PLAYER</button>
+    </p>
+    <p style="margin-top:10px">
+        <button onclick="updateColors()">UPDATE ALL COLORS</button>
+    </p>
+    <p style="margin-top:10px">
+        <button onclick="reconnect()">RECONNECT CONTROLLER</button>
+    </p>
   </body>
 </html>

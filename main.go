@@ -1,128 +1,26 @@
 package main
 
 import (
-	"github.com/gobuffalo/packr"
-	"net"
-	"net/http"
-	"encoding/json"
-	"time"
-	"errors"
 	"flag"
 	"fmt"
 	"strconv"
-	"strings"
+	"net/http"
+	"encoding/json"
+
+	"github.com/gobuffalo/packr"
+
+	table "boardgametable/table"
 )
 
 const restPort = 8080
 
-const cmdFrameStart = 0x38
-const cmdFrameEnd = 0x83
-
-const cmdCustomPreview = 0x24
-const cmdBrightness = 0x2a
-
-var colors = map[string]string {
-	"red": "ff,00,00",
-	"green": "00,ff,00",
-	"blue": "00,00,ff",
-	"cyan": "00,ff,ff",
-	"yellow": "ff,ff,00",
-	"purple": "ff,00,bf",
-	"orange": "ff,80,00",
-	"white": "ff,ff,ff",
-}
-var directions = map[string]string {
-	"right": "0,40,",
-	"bottom": "45,115,",
-	"left": "120,156,",
-	"top": "165,236,",
-}
-
-var conn net.Conn
-var frame []byte
-var cmdCustomPreviewRunning = false
-
-func createCommandPacket(command byte, frame []byte) ([]byte, error) {
-	if len(frame)!=3 {
-		return nil, errors.New("command frame is not 3 bytes")
-	}
-	commandPacket := []byte{}
-	commandPacket = append(commandPacket, cmdFrameStart)
-	commandPacket = append(commandPacket, frame...)
-	commandPacket = append(commandPacket, command)
-	commandPacket = append(commandPacket, cmdFrameEnd)
-	return commandPacket, nil
-}
-
-func sendCommand(connection net.Conn, command []byte, confirmExpected bool) error {
-	connection.Write(command)
-	time.Sleep(10 * time.Millisecond)
-	if confirmExpected {
-		tmp := make([]byte, 10)
-		connection.Read(tmp)
-		if tmp[0] != 0x31 {
-			return errors.New("response not 0x31")
-		}
-	}	
-	return nil
-}
-
-func parseColormaps(mapdefs []string, frame *[]byte) {
-	for _, mapEntry := range mapdefs {
-		fmt.Printf("parsing colormap '%s'\n", mapEntry)
-		var start int
-		var end int
-		var colorR, colorG, colorB byte
-		fmt.Sscanf(mapEntry, "%d,%d,%x,%x,%x", &start, &end, &colorR, &colorG, &colorB)
-		fmt.Printf("setting leds %d to %d with color %x/%x/%x\n", start, end, colorR, colorG, colorB)
-		for i:=start*3; i<end*3; i+=3 {
-			if i<len(*frame)-3 {
-				(*frame)[i] = colorR;
-				(*frame)[i+1] = colorG;
-				(*frame)[i+2] = colorB;	
-			}
-		}	
-	}
-}
-
-func setBrightness(conn net.Conn, brightness int) {
-	fmt.Println("setting brightness to", brightness)
-	if cmdCustomPreviewRunning {
-		cmdCustomPreviewRunning = false
-		time.Sleep(50 * time.Millisecond)
-		command, _ := createCommandPacket(cmdBrightness, []byte {byte(brightness), byte(brightness), byte(brightness)})
-		sendCommand(conn, command, false)
-		time.Sleep(50 * time.Millisecond)
-		cmdCustomPreviewRunning = true
-		return
-	}
-	command, _ := createCommandPacket(cmdBrightness, []byte {byte(brightness), byte(brightness), byte(brightness)})
-	sendCommand(conn, command, false)	
-}
-
-func startCustomPreview(conn net.Conn) {
-	command, _ := createCommandPacket(cmdCustomPreview, []byte {0x0, 0x0, 0x0})
-	sendCommand(conn, command, true)
-}
-
-func runCustomPreview(conn net.Conn) {
-	for {
-		if (cmdCustomPreviewRunning) {
-			err := sendCommand(conn, frame, true)
-			if err != nil {
-				fmt.Println("error: ", err)
-			}
-		}
-		// this is needed for the raspi
-		time.Sleep(10 * time.Millisecond)
-	}	
-}
+var sp108e *table.Sp108e
 
 func handleSuccess(w *http.ResponseWriter, result interface{}) {
 	writer := *w
 	marshalled, err := json.Marshal(result)
 	if err != nil {
-		handleError(w, 500, "Internal Server Error", "Error marshalling response JSON", err)
+		handleError(w, 500, "Internal Server Error:", "Error marshalling response JSON:", err)
 		return
 	}
 	writer.Header().Add("Content-Type", "application/json")
@@ -173,7 +71,11 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 			handleError(&w, 500, "invalid value given", "invalid value given", nil)
 			return;
 		}
-		setBrightness(conn, intValue)
+		err = sp108e.SetBrightness(byte(intValue))
+		if err != nil {
+			handleError(&w, 500, "error setting brightness:", "error setting brightness:", err)
+			return;
+		}
 		handleSuccess(&w, "success")
 		break
 	case "startcolormap":
@@ -192,17 +94,35 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 			handleError(&w, 500, "invalid brightness given", "invalid brightness given", nil)
 			return;
 		}
-		cmdCustomPreviewRunning = false
-		time.Sleep(50 * time.Millisecond)
-		setBrightness(conn, intBrightness)
-		mapSlice := strings.Split(colormap[0], "-")
-		parseColormaps(mapSlice, &frame)
-		startCustomPreview(conn)
-		cmdCustomPreviewRunning = true
+		err = sp108e.StopAnimation()
+		if err != nil {
+			handleError(&w, 500, "error stopping animation:", "error stopping animation:", err)
+			return;
+		}
+		err = sp108e.SetBrightness(byte(intBrightness))
+		if err != nil {
+			handleError(&w, 500, "error setting brightness:", "error setting brightness:", err)
+			return;
+		}
+		animation := table.NewAnimationPlayTable(sp108e.GetFrameBuffer())
+		err = animation.SetPlayerColorFromString(colormap[0])
+		if err != nil {
+			handleError(&w, 500, "error setting up animation:", "error setting up animation:", err)
+			return;
+		}
+		err = sp108e.StartAnimation(animation)
+		if err != nil {
+			handleError(&w, 500, "error starting animation:", "error starting animation:", err)
+			return;
+		}
 		handleSuccess(&w, "success")
 		break
 	case "stopcolormap":
-		cmdCustomPreviewRunning = false
+		err := sp108e.StopAnimation()
+		if err != nil {
+			handleError(&w, 500, "error stopping animation:", "error stopping animation:", err)
+			return;
+		}
 		handleSuccess(&w, "success")
 		break
 	case "tablecolors":
@@ -236,19 +156,116 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 			handleError(&w, 500, "invalid brightness given", "invalid brightness given", nil)
 			return;
 		}
-		cmdCustomPreviewRunning = false
-		time.Sleep(50 * time.Millisecond)
-		setBrightness(conn, intBrightness)
-		var mapSlice []string
-		mapSlice = append(mapSlice, directions["right"] + colors[r[0]])
-		mapSlice = append(mapSlice, directions["bottom"] + colors[b[0]])
-		mapSlice = append(mapSlice, directions["left"] + colors[l[0]])
-		mapSlice = append(mapSlice, directions["top"] + colors[t[0]])
-		parseColormaps(mapSlice, &frame)
-		startCustomPreview(conn)
-		cmdCustomPreviewRunning = true
+		err = sp108e.StopAnimation()
+		if err != nil {
+			handleError(&w, 500, "error stopping animation:", "error stopping animation:", err)
+			return;
+		}
+		err = sp108e.SetBrightness(byte(intBrightness))
+		if err != nil {
+			handleError(&w, 500, "error setting brightness:", "error setting brightness:", err)
+			return;
+		}
+		animation := table.NewAnimationPlayTable(sp108e.GetFrameBuffer())
+		err = animation.SetPlayerColor(table.Directions["right"], table.Colors[r[0]])
+		if err != nil {
+			handleError(&w, 500, "error creating player color for right:", "error creating player color for right:", err)
+			return;
+		}
+		animation.SetPlayerColor(table.Directions["bottom"], table.Colors[b[0]])
+		if err != nil {
+			handleError(&w, 500, "error creating player color for bottom:", "error creating player color for bottom:", err)
+			return;
+		}
+		animation.SetPlayerColor(table.Directions["left"], table.Colors[l[0]])
+		if err != nil {
+			handleError(&w, 500, "error creating player color for left:", "error creating player color for left:", err)
+			return;
+		}
+		animation.SetPlayerColor(table.Directions["top"], table.Colors[t[0]])
+		if err != nil {
+			handleError(&w, 500, "error creating player color for top:", "error creating player color for top:", err)
+			return;
+		}
+		err = sp108e.StartAnimation(animation)
+		if err != nil {
+			handleError(&w, 500, "error starting animation:", "error starting animation:", err)
+			return;
+		}
 		handleSuccess(&w, "success")
 		break
+	case "active":
+		d, ok := keys["direction"]
+		if !ok || len(d) != 1 {
+			handleError(&w, 500, "direction not given", "direction not given", nil)
+			return;
+		}
+		if d[0] != "left" && d[0] != "right" && d[0] != "top" && d[0] != "bottom" {
+			handleError(&w, 500, "unknown direction", "unknown direction", nil)
+			return;
+		}
+		currentAnimation := sp108e.GetCurrentAnimation()
+		if currentAnimation == nil {
+			handleError(&w, 500, "no current animation", "no current animation", nil)
+			return;
+		}
+		currentPlayTableAnimation, ok := currentAnimation.(*table.AnimationPlayTable)
+		if !ok {
+			handleError(&w, 500, "current animation does not support active direction", "current animation does not support active direction", nil)
+			return;
+		}
+		err := currentPlayTableAnimation.SetActiveDirection(table.Directions[d[0]])
+		if err != nil {
+			handleError(&w, 500, "error setting active direction:", "error setting active direction:", err)
+			return;
+		}
+		handleSuccess(&w, "success")
+		break
+	case "nextactive":
+		currentAnimation := sp108e.GetCurrentAnimation()
+		if currentAnimation == nil {
+			handleError(&w, 500, "no current animation", "no current animation", nil)
+			return;
+		}
+		currentPlayTableAnimation, ok := currentAnimation.(*table.AnimationPlayTable)
+		if !ok {
+			handleError(&w, 500, "current animation does not support active direction", "current animation does not support active direction", nil)
+			return;
+		}
+		err := currentPlayTableAnimation.ActiveDirectionNext()
+		if err != nil {
+			handleError(&w, 500, "error setting active direction:", "error setting active direction:", err)
+			return;
+		}
+		handleSuccess(&w, "success")
+		break
+	case "activeoff":
+		currentAnimation := sp108e.GetCurrentAnimation()
+		if currentAnimation == nil {
+			handleError(&w, 500, "no current animation", "no current animation", nil)
+			return;
+		}
+		currentPlayTableAnimation, ok := currentAnimation.(*table.AnimationPlayTable)
+		if !ok {
+			handleError(&w, 500, "current animation does not support active direction", "current animation does not support active direction", nil)
+			return;
+		}
+		err := currentPlayTableAnimation.ActiveDirectionOff()
+		if err != nil {
+			handleError(&w, 500, "error stopping active direction:", "error stopping active direction:", err)
+			return;
+		}
+		handleSuccess(&w, "success")
+		break
+	case "reconnect":
+		err := sp108e.Reconnect()
+		if err != nil {
+			handleError(&w, 500, "error reconnecting:", "error reconnecting:", err)
+			return;
+		}
+		handleSuccess(&w, "success")
+		break
+
 	default:
 		handleError(&w, 405, "unknown command", "unknown command", nil)
 		break
@@ -260,7 +277,7 @@ func main() {
 	hostPtr := flag.String("host", "192.168.178.83", "controller host")
 	portPtr := flag.Int("port", 8189, "port number")
 	brightnessPtr := flag.Int("brightness", -1, "brightness value")
-	colormapPtr := flag.Bool("colormap", false, "colormap definition given")
+	colormapPtr := flag.String("colormap", "0,100,ff,00,00-101,200,00,ff,00", "colormap definition")
 	colorRightPtr := flag.String("right", "", "color right")
 	colorLeftPtr := flag.String("left", "", "color left")
 	colorTopPtr := flag.String("top", "", "color top")
@@ -273,16 +290,16 @@ func main() {
 	fmt.Println("using sp108e port:", *portPtr)
 
 	// connect to the sp108e
-	conn, _ = net.Dial("tcp", *hostPtr + ":" + strconv.Itoa(*portPtr))
-
-	// prepare the frame buffer
-	frame = make([]byte, 900, 900)
+	var err error
+	sp108e, err = table.NewSp108e(*hostPtr, *portPtr)
+	if err != nil {
+		fmt.Println("error connecting to sp108", err)
+		return
+	}
 
 	if *serverPtr {
 		// server mode, start rest service
 		fmt.Printf("starting rest service on port %d, terminate with ctrl-c\n", restPort)
-		// start frame animation thread
-		go runCustomPreview(conn)
 		// setup web service
 		staticResources := packr.NewBox("./static")
 	  http.Handle("/", http.FileServer(staticResources))	
@@ -294,34 +311,50 @@ func main() {
 	} else {
 		// cli mode, parse the available cli params
 		if *brightnessPtr!=-1 {
-			setBrightness(conn, *brightnessPtr)
-			time.Sleep(100 * time.Millisecond)
+			sp108e.SetBrightness(byte(*brightnessPtr))
 		}	
 		// directions OR colormap
 		if *colorRightPtr != "" && *colorLeftPtr != "" && *colorTopPtr != "" && *colorBottomPtr != "" {
-			var mapSlice []string
-			mapSlice = append(mapSlice, directions["right"] + colors[*colorRightPtr])
-			mapSlice = append(mapSlice, directions["bottom"] + colors[*colorBottomPtr])
-			mapSlice = append(mapSlice, directions["left"] + colors[*colorLeftPtr])
-			mapSlice = append(mapSlice, directions["top"] + colors[*colorTopPtr])
-			parseColormaps(mapSlice, &frame)
-			fmt.Println("directional colors given, starting display loop, terminate with ctrl-c")
-			startCustomPreview(conn)
-			cmdCustomPreviewRunning = true	
-			runCustomPreview(conn)
-		} else if *colormapPtr {
-			tailArgs := flag.Args()
-			if len(tailArgs)<4 {
-				tailArgs = append(tailArgs, directions["right"] + "ff,ff,ff")
-				tailArgs = append(tailArgs, directions["bottom"] + "ff,00,00")
-				tailArgs = append(tailArgs, directions["left"] + "00,00,ff")
-				tailArgs = append(tailArgs, directions["top"] + "00,ff,00")
+			animation := table.NewAnimationPlayTable(sp108e.GetFrameBuffer())
+			err := animation.SetPlayerColor(table.Directions["right"], table.Colors[*colorRightPtr])
+			if err != nil {
+				fmt.Println("error creating player color for right:", err)
+				return;
 			}
-			parseColormaps(tailArgs, &frame)
+			animation.SetPlayerColor(table.Directions["bottom"], table.Colors[*colorBottomPtr])
+			if err != nil {
+				fmt.Println("error creating player color for bottom:", err)
+				return;
+			}
+			animation.SetPlayerColor(table.Directions["left"], table.Colors[*colorLeftPtr])
+			if err != nil {
+				fmt.Println("error creating player color for left:", err)
+				return;
+			}
+			animation.SetPlayerColor(table.Directions["top"], table.Colors[*colorTopPtr])
+			if err != nil {
+				fmt.Println("error creating player color for top:", err)
+				return;
+			}
+			fmt.Println("directional colors given, starting display loop, terminate with ctrl-c")
+			err = sp108e.StartAnimation(animation)
+			if err != nil {
+				fmt.Println("error starting animation:", err)
+				return;
+			}
+		} else if *colormapPtr != "" {
+			animation := new(table.AnimationPlayTable)
+			err := animation.SetPlayerColorFromString(*colormapPtr)
+			if err != nil {
+				fmt.Println("error creating player color for right:", err)
+				return;
+			}
 			fmt.Println("colormap given, starting display loop, terminate with ctrl-c")
-			startCustomPreview(conn)
-			cmdCustomPreviewRunning = true
-			runCustomPreview(conn)
+			err = sp108e.StartAnimation(animation)
+			if err != nil {
+				fmt.Println("error starting animation:", err)
+				return;
+			}
 		}	
 	}
 }
