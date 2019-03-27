@@ -1,6 +1,7 @@
 package main
 
 import (
+	"time"
 	"flag"
 	"fmt"
 	"strconv"
@@ -258,10 +259,10 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 		handleSuccess(&w, "success")
 		break
 	case "reconnect":
-		err := sp108e.Reconnect()
+		err := sp108e.Reconnect(true)
 		if err != nil {
 			handleError(&w, 500, "error reconnecting:", "error reconnecting:", err)
-			return;
+			return
 		}
 		handleSuccess(&w, "success")
 		break
@@ -270,6 +271,15 @@ func doRequest(w http.ResponseWriter, r *http.Request) {
 		handleError(&w, 405, "unknown command", "unknown command", nil)
 		break
 	}
+}
+
+func timerTask() {
+	fmt.Println("performing scheduled reconnect..")
+	err := sp108e.Reconnect(true)
+		if err != nil {
+			fmt.Println("error performing scheduled reconnect:", err)
+			return
+		}
 }
 
 func main() {
@@ -282,6 +292,7 @@ func main() {
 	colorLeftPtr := flag.String("left", "", "color left")
 	colorTopPtr := flag.String("top", "", "color top")
 	colorBottomPtr := flag.String("bottom", "", "color bottom")
+	reconnectIntervalPtr := flag.Int("reconnect", 300, "reconnect interval in seconds")
 
 	flag.Parse()
 
@@ -300,6 +311,21 @@ func main() {
 	if *serverPtr {
 		// server mode, start rest service
 		fmt.Printf("starting rest service on port %d, terminate with ctrl-c\n", restPort)
+		// start timer that reconnects every 5 minutes
+		ticker := time.NewTicker(time.Duration(*reconnectIntervalPtr) * time.Second)
+		quit := make(chan struct{})
+		// end timer by closing the quit channel: close(quit)
+		go func() {
+    	for {
+       select {
+        case <- ticker.C:
+            timerTask()
+        case <- quit:
+            ticker.Stop()
+            return
+        }
+    	}
+ 		}()
 		// setup web service
 		staticResources := packr.NewBox("./static")
 	  http.Handle("/", http.FileServer(staticResources))	

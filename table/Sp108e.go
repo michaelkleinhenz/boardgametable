@@ -64,9 +64,9 @@ func (leds *Sp108e) CloseConnection() error {
 }
 
 // Reconnect recreates a connection. Animation setting is lost.
-func (leds *Sp108e) Reconnect() error {
-	if leds.animationRunning {
-		leds.animationRunning = false
+func (leds *Sp108e) Reconnect(restartAnimation bool) error {
+	leds.animationRunning = false
+	if !restartAnimation && leds.animationRunning {
 		leds.currentAnimation = nil
 	}
 	err := leds.CloseConnection()
@@ -77,6 +77,9 @@ func (leds *Sp108e) Reconnect() error {
 	err = leds.CreateConnection()
 	if err != nil {
 		return err
+	}
+	if restartAnimation && leds.currentAnimation != nil {
+		leds.animationRunning = true
 	}
 	return nil
 }
